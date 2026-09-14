@@ -9,6 +9,7 @@ $client     = new ZerochanClient($limiter);
 $index      = new Index();
 $downloader = new Downloader($client, $index);
 $jobs       = new Jobs();
+$library    = new Library($index);
 
 function json_out(array $data, int $status = 200): never
 {
