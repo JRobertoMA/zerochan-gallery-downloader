@@ -13,6 +13,10 @@ $res = $index->list([
     'p'    => $_GET['p'] ?? 1,
     'l'    => $_GET['l'] ?? 60,
 ]);
+foreach ($res['items'] as &$it) {
+    $it['crops'] = Library::cropCount($it['folder'], (int) $it['id']);   // recortes en downloads/<folder>/crops/
+}
+unset($it);
 
 json_out($res + [
     'tags'  => $index->facetTags(30, $tag !== '' ? $tag : null),
