@@ -31,7 +31,7 @@ PHP 8 sin framework ni dependencias externas, frontend vanilla, índice local en
 ## Instalación
 
 ```bash
-git clone <este-repo> zerochan-gallery-downloader
+git clone https://github.com/JRobertoMA/zerochan-gallery-downloader.git zerochan-gallery-downloader
 cd zerochan-gallery-downloader
 cp .env.example .env
 ```
