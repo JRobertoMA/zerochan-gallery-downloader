@@ -6,4 +6,4 @@ Options -Indexes
 </FilesMatch>
 
 # cache/ y src/ no se sirven nunca; downloads/ sí (para ver lo descargado)
-RedirectMatch 403 ^/zerochan/(cache|src|cli|data|logs)(/|$)
+RedirectMatch 403 ^/zerochan-gallery-downloader/(cache|src|cli|data|logs)(/|$)
