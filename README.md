@@ -18,6 +18,9 @@ PHP 8 sin framework ni dependencias externas, frontend vanilla, índice local en
   Progreso por imagen (bytes), cancelar, reintentar fallidos, reanudación automática si el proceso muere.
 - **Biblioteca local** indexada en SQLite: búsqueda por texto, facetas de tags, orden por fecha/tamaño, detección de
   duplicados por md5 y marcado de "ya descargada" en los resultados de la API.
+- **Editor de recorte**: recorta cualquier imagen descargada con relación de aspecto fija (16:9, 4:3, 1:1, 9:16…),
+  personalizada (W:H) o libre. El original no se toca; los recortes se guardan aparte y se listan como variantes.
+- **Borrado** desde la tarjeta, desde el visor o en lote (modo selección), siempre con confirmación.
 - **Respeta el rate limit** de Zerochan (60 req/min) con un limitador compartido entre web, CLI y worker; caché de
   respuestas JSON; reintentos con backoff; corte de descargas por velocidad mínima (el CDN a veces sirve a ~50 KB/s).
 - **CLI** para scripts y cron; **log** propio consultable desde la interfaz.
@@ -62,7 +65,7 @@ Abre `http://<host>/zerochan-gallery-downloader/`.
 | Pestaña | Qué hace |
 |---|---|
 | **Explorar** | Busca en Zerochan. `⬇` en cada tarjeta descarga el `full`; `✓` ya está en local; `≈` es la misma imagen que otra ya descargada. "Descargar todo…" encola un lote desde la página actual con los filtros activos. |
-| **Descargados** | Tu biblioteca local. Buscador, facetas de tags, orden. Clic abre el fichero. |
+| **Descargados** | Tu biblioteca local. Buscador, facetas de tags, orden. Clic abre el visor (recortar, borrar, ver recortes); `🗑` en la tarjeta borra; **Seleccionar** activa el borrado en lote. |
 | **Log** | Últimas líneas de `logs/zerochan.log` (reintentos, fallos, jobs). |
 | Botón **Descargas** | Panel con los jobs en curso y terminados. |
 
@@ -99,7 +102,9 @@ Opciones de lote: `--d=large|huge|landscape|portrait|square`, `--s=id|fav`, `--t
 downloads/
 └── fiolina-germi/            ← slug del tag principal
     ├── 3060235.jpg           ← imagen full, md5 verificado
-    └── 3060235.json          ← metadatos: tags, dimensiones, fuente, hash, fecha de descarga
+    ├── 3060235.json          ← metadatos: tags, dimensiones, fuente, hash, fecha de descarga
+    └── crops/
+        └── 3060235-1920x1080.jpg  ← recorte (el original nunca se modifica)
 ```
 
 ## API interna
@@ -113,7 +118,9 @@ Todos los endpoints devuelven JSON y viven en `api/`:
 | `download.php` | POST `id` | Descarga síncrona de una imagen. |
 | `jobs.php` | GET / GET `?id=` | Lista de jobs / detalle. |
 | `jobs.php` | POST `action=create&tags=&max=…` | Encola un lote y lanza el worker. También `cancel`, `retry`, `clear`. |
-| `downloads.php?tag=&q=&sort=&p=&l=` | GET | Biblioteca local desde el índice, con facetas y totales. |
+| `downloads.php?tag=&q=&sort=&p=&l=` | GET | Biblioteca local desde el índice, con facetas y totales; cada item lleva `crops` (nº de recortes). |
+| `local.php?id=` | GET | Detalle de una imagen descargada con su lista de `crops`. |
+| `local.php` | POST `action=delete&ids=1,2,3` | Borra imagen, sidecar y recortes (máx. 200 ids). También `delete_crop&id=&name=` y `crop&id=&x=&y=&w=&h=` (rectángulo normalizado 0..1). |
 | `log.php?n=` | GET | Últimas líneas del log. |
 
 ## Cómo funciona
