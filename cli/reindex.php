@@ -2,7 +2,7 @@
 <?php
 /**
  * Reconstruye data/index.sqlite a partir de los <id>.json de downloads/.
- *   docker exec -u www-data php-apache php /var/www/html/zerochan/cli/reindex.php
+ *   docker exec -u www-data php-apache php /var/www/html/zerochan-gallery-downloader/cli/reindex.php
  */
 if (PHP_SAPI !== 'cli') {
     exit("Solo CLI\n");
