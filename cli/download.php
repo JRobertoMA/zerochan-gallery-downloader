@@ -12,7 +12,7 @@
  * Por defecto encola un job y lanza el worker (cli/worker.php) en segundo plano.
  * Con --sync descarga en este mismo proceso mostrando el progreso (útil para cron con salida).
  *
- * Dentro del contenedor: docker exec -u www-data php-apache php /var/www/html/zerochan/cli/download.php "Hololive" --max=5
+ * Dentro del contenedor: docker exec -u www-data php-apache php /var/www/html/zerochan-gallery-downloader/cli/download.php "Hololive" --max=5
  */
 if (PHP_SAPI !== 'cli') {
     exit("Solo CLI\n");
