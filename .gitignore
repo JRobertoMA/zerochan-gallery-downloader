@@ -1,0 +1,9 @@
+.env
+cache/*
+!cache/.gitkeep
+downloads/*
+!downloads/.gitkeep
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep

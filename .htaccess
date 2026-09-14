@@ -1,0 +1,9 @@
+RewriteEngine Off
+Options -Indexes
+
+<FilesMatch "^\.env">
+    Require all denied
+</FilesMatch>
+
+# cache/ y src/ no se sirven nunca; downloads/ sí (para ver lo descargado)
+RedirectMatch 403 ^/zerochan/(cache|src|cli|data|logs)(/|$)
