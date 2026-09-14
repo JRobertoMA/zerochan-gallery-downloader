@@ -5,7 +5,7 @@
  * Lo lanza api/jobs.php (o cli/download.php) al crear un job; también se puede invocar por cron
  * como red de seguridad. Procesa todos los jobs pendientes y termina.
  *
- *   docker exec -u www-data php-apache php /var/www/html/zerochan/cli/worker.php
+ *   docker exec -u www-data php-apache php /var/www/html/zerochan-gallery-downloader/cli/worker.php
  */
 if (PHP_SAPI !== 'cli') {
     exit("Solo CLI\n");
