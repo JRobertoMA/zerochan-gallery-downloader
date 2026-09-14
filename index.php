@@ -44,8 +44,18 @@ main{padding:16px}
 .card:hover .dl{opacity:1}
 .card.saved .dl{opacity:1;background:var(--ok);color:#0b0d12}
 .card.dup .dl{opacity:1;background:var(--warn);color:#0b0d12}
+.card .del{right:auto;left:6px;background:rgba(200,50,50,.75)}
+.card.saved .del{opacity:0;background:rgba(200,50,50,.75);color:#fff}
+.card.saved:hover .del{opacity:1}
+.card .sel{display:none;position:absolute;top:8px;right:8px;width:20px;height:20px;margin:0;accent-color:var(--accent);cursor:pointer}
+.grid.select .card .sel{display:block}
+.grid.select .card .del{display:none}
+.card.picked{outline:3px solid var(--accent);outline-offset:-3px}
 .badge{display:inline-block;background:#ff7aa2;color:#0b0d12;font-weight:700;font-size:10px;border-radius:4px;padding:0 4px;margin-right:4px;vertical-align:1px}
 .badge.dup{background:var(--warn)}
+.badge.crop{background:var(--accent)}
+#selbar{display:none;gap:6px;align-items:center}
+#selbar.open{display:flex}
 .pager{display:flex;gap:8px;justify-content:center;margin:16px 0}
 .tabs{display:flex;gap:4px;margin-left:auto}
 .tabs button.active{border-color:var(--accent);color:var(--accent)}
@@ -65,6 +75,24 @@ main{padding:16px}
 .kv b{color:var(--text);font-weight:500}
 .close{position:fixed;top:12px;right:16px;font-size:28px;background:none;border:0;color:#fff}
 @media(max-width:900px){.modal .box{grid-template-columns:1fr}.modal .pic{border-radius:10px 10px 0 0}}
+/* visor local + recorte */
+.modal .wrap{position:relative;display:inline-block;line-height:0;touch-action:none;user-select:none;max-width:100%}
+.modal .wrap img{display:block}
+.cropbox{position:absolute;border:1px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.55);cursor:move}
+.cropbox i{position:absolute;width:14px;height:14px;background:#fff;border:1px solid #000;border-radius:2px}
+.cropbox i[data-h=nw]{left:-7px;top:-7px;cursor:nwse-resize}.cropbox i[data-h=ne]{right:-7px;top:-7px;cursor:nesw-resize}
+.cropbox i[data-h=sw]{left:-7px;bottom:-7px;cursor:nesw-resize}.cropbox i[data-h=se]{right:-7px;bottom:-7px;cursor:nwse-resize}
+.modal.cropping .pic{overflow:hidden}
+.btnrow{display:flex;gap:6px;flex-wrap:wrap}
+.crops{display:flex;flex-direction:column;gap:6px}
+.crops .row{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
+.crops .row img{width:64px;height:48px;object-fit:cover;border-radius:4px;background:#000;cursor:pointer}
+.crops .row b{color:var(--text);font-weight:500}
+.crops .row .sp{margin-left:auto;display:flex;gap:4px}
+#cropTools{border-top:1px solid var(--line);padding-top:12px;display:none;flex-direction:column;gap:8px}
+#cropTools.open{display:flex}
+#cropTools .ar{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#cropTools input.num{width:64px}
 /* jobs panel */
 .panel{position:fixed;right:16px;bottom:16px;width:min(440px,calc(100% - 32px));background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;display:none;z-index:15;box-shadow:0 8px 30px rgba(0,0,0,.5);max-height:70vh;overflow:auto}
 .panel.open{display:block}
@@ -120,6 +148,13 @@ main{padding:16px}
     <input type="text" id="sq" placeholder="Buscar en descargados (tag o personaje)">
     <select id="ssort"><option value="date">Más recientes</option><option value="size">Más pesadas</option><option value="id">Por id</option></select>
     <button type="button" id="sgo">Filtrar</button>
+    <button type="button" id="ssel" title="Seleccionar varias para borrar">Seleccionar</button>
+    <span id="selbar">
+      <button type="button" class="small" id="selAll">Todas (página)</button>
+      <button type="button" class="small" id="selNone">Ninguna</button>
+      <button type="button" class="small primary" id="sdel" disabled>Borrar (0)</button>
+      <button type="button" class="small" id="selCancel">Cancelar</button>
+    </span>
     <span id="stagchip"></span>
     <div class="tags" id="sfacet"></div>
   </div>
@@ -144,6 +179,28 @@ main{padding:16px}
   </div>
 </div>
 
+<div class="modal" id="lmodal">
+  <button class="close" id="lclose">×</button>
+  <div class="box">
+    <div class="pic"><div class="wrap"><img id="lImg" alt=""><div class="cropbox" id="cropbox" hidden><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div></div></div>
+    <div class="side">
+      <h2 id="lTitle"></h2>
+      <div class="kv" id="lInfo"></div>
+      <div class="btnrow"><a id="lOpen" target="_blank" rel="noopener"><button type="button">Abrir original</button></a><button type="button" id="lCrop">Recortar</button><button type="button" id="lDel" style="border-color:var(--err);color:var(--err)">Borrar</button></div>
+      <div id="cropTools">
+        <div class="ar"><label class="kv">Relación</label>
+          <select id="ar"><option value="16:9">16:9</option><option value="4:3">4:3</option><option value="3:2">3:2</option><option value="1:1">1:1</option><option value="4:5">4:5</option><option value="9:16">9:16</option><option value="free">Libre</option><option value="custom">Personalizada</option></select>
+          <span id="arCustom" hidden><input type="number" class="num" id="arW" min="1" step="1" value="21"> : <input type="number" class="num" id="arH" min="1" step="1" value="9"></span>
+        </div>
+        <div class="kv">Recorte: <b id="cropInfo"></b> px · arrastra el cuadro o sus esquinas</div>
+        <div class="btnrow"><button type="button" class="primary" id="cropSave">Guardar recorte</button><button type="button" id="cropCancel">Cancelar</button></div>
+      </div>
+      <div class="crops" id="lCrops"></div>
+      <div class="tags" id="lTags"></div>
+    </div>
+  </div>
+</div>
+
 <button class="jobsbtn" id="jobsbtn" type="button">Descargas</button>
 <div class="panel" id="panel">
   <h3>Descargas en segundo plano <span class="kv" id="pWorker"></span>
@@ -156,7 +213,7 @@ main{padding:16px}
 <script>
 const $ = s => document.querySelector(s);
 const form = $('#form'), grid = $('#grid'), statusEl = $('#status'), pager = $('#pager');
-let state = { tab: 'search', page: 1, items: [], saved: new Set(), savedFilter: { tag: '', q: '', sort: 'date', p: 1 }, jobs: [], jobsTimer: null };
+let state = { tab: 'search', page: 1, items: [], saved: new Set(), savedFilter: { tag: '', q: '', sort: 'date', p: 1 }, jobs: [], jobsTimer: null, selectMode: false, sel: new Set(), local: null };
 
 const fmtBytes = b => b > 1048576 ? (b/1048576).toFixed(1)+' MB' : b > 1024 ? (b/1024).toFixed(0)+' KB' : b+' B';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -227,10 +284,13 @@ function renderSaved(d){
   statusEl.innerHTML = `${d.count} de ${d.stats.count} descargadas · ${fmtBytes(d.stats.bytes)} en <code>downloads/</code> · página ${d.page}`;
   $('#stagchip').innerHTML = f.tag ? `<span class="tag active">${esc(f.tag)} ×</span>` : '';
   $('#sfacet').innerHTML = d.tags.map(t => `<span class="tag" data-tag="${esc(t.tag)}">${esc(t.tag)}<small>${t.n}</small></span>`).join('');
+  state.sel.clear(); updateSelBar();
   grid.innerHTML = d.items.map(it => `
     <div class="card saved" data-id="${it.id}" data-local="${it.url}">
       <img src="${it.url}" loading="lazy" alt="" width="${it.width}" height="${it.height}">
-      <div class="meta"><b title="${esc(it.primary)}">${esc(it.primary)}</b><span>${(it.tags||[]).includes('Ecchi')?'<i class="badge" title="Ecchi">E</i>':''}${fmtBytes(it.size)}</span></div>
+      <button class="dl del" data-del="${it.id}" title="Borrar del disco">🗑</button>
+      <input type="checkbox" class="sel" data-sel="${it.id}" title="Seleccionar">
+      <div class="meta"><b title="${esc(it.primary)}">${esc(it.primary)}</b><span>${(it.tags||[]).includes('Ecchi')?'<i class="badge" title="Ecchi">E</i>':''}${it.crops?`<i class="badge crop" title="${it.crops} recorte${it.crops>1?'s':''}">✂${it.crops}</i>`:''}${fmtBytes(it.size)}</span></div>
     </div>`).join('');
   const pages = Math.ceil(d.count / d.limit);
   pager.innerHTML = pages > 1 ? `<button ${d.page<=1?'disabled':''} id="sprev">← Anterior</button><span style="align-self:center;color:var(--muted)">${d.page} / ${pages}</span><button ${d.page>=pages?'disabled':''} id="snext">Siguiente →</button>` : '';
@@ -241,6 +301,36 @@ $('#sgo').onclick = () => { state.savedFilter.q = $('#sq').value.trim(); state.s
 $('#sq').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#sgo').click(); } });
 $('#sfacet').addEventListener('click', e => { const t = e.target.closest('[data-tag]'); if (!t) return; state.savedFilter.tag = t.dataset.tag; state.savedFilter.p = 1; loadSaved(); });
 $('#stagchip').addEventListener('click', () => { state.savedFilter.tag = ''; state.savedFilter.p = 1; loadSaved(); });
+
+// ---- borrar / selección múltiple ----
+async function deleteLocal(ids){
+  const d = await api('api/local.php', { action: 'delete', ids: ids.join(',') });
+  d.deleted.forEach(id => { state.saved.delete(id); state.sel.delete(id); document.querySelectorAll(`.card[data-id="${id}"]`).forEach(c => c.remove()); });
+  toast(`${d.deleted.length} borrada${d.deleted.length!==1?'s':''} · ${fmtBytes(d.freed)} liberados${d.missing.length?` · ${d.missing.length} no existían`:''}`);
+  return d;
+}
+function setSelectMode(on){
+  state.selectMode = on; state.sel.clear();
+  grid.classList.toggle('select', on); $('#selbar').classList.toggle('open', on); $('#ssel').hidden = on;
+  grid.querySelectorAll('.card').forEach(c => { c.classList.remove('picked'); const cb = c.querySelector('.sel'); if (cb) cb.checked = false; });
+  updateSelBar();
+}
+function updateSelBar(){ const n = state.sel.size; $('#sdel').textContent = `Borrar (${n})`; $('#sdel').disabled = !n; }
+function toggleSel(card, on){
+  const id = +card.dataset.id; on ??= !state.sel.has(id);
+  on ? state.sel.add(id) : state.sel.delete(id);
+  card.classList.toggle('picked', on); const cb = card.querySelector('.sel'); if (cb) cb.checked = on;
+  updateSelBar();
+}
+$('#ssel').onclick = () => setSelectMode(true);
+$('#selCancel').onclick = () => setSelectMode(false);
+$('#selAll').onclick = () => grid.querySelectorAll('.card').forEach(c => toggleSel(c, true));
+$('#selNone').onclick = () => grid.querySelectorAll('.card').forEach(c => toggleSel(c, false));
+$('#sdel').onclick = async () => {
+  const ids = [...state.sel]; if (!ids.length) return;
+  if (!confirm(`¿Borrar ${ids.length} imagen${ids.length>1?'es':''} del disco, con sus recortes? No se puede deshacer.`)) return;
+  try { await deleteLocal(ids); setSelectMode(false); loadSaved(); } catch (e) { toast('Error: ' + e.message); }
+};
 
 // ---- log ----
 async function loadLog(){
@@ -272,7 +362,7 @@ async function openModal(id){
 }
 $('#close').onclick = () => $('#modal').classList.remove('open');
 $('#modal').addEventListener('click', e => { if (e.target === $('#modal')) $('#modal').classList.remove('open'); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#modal').classList.remove('open'); $('#panel').classList.remove('open'); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#modal').classList.remove('open'); $('#panel').classList.remove('open'); closeLocal(); if (state.selectMode) setSelectMode(false); } });
 $('#mTags').addEventListener('click', e => {
   if (!e.target.classList.contains('tag')) return;
   const t = e.target.textContent, cur = $('#tags').value.split(',').map(s=>s.trim()).filter(Boolean);
@@ -292,12 +382,136 @@ async function downloadOne(id, statusNode){
   } catch (e) { if (statusNode) statusNode.textContent = e.message; toast('Error: ' + e.message); }
 }
 
+// ---- visor local (descargadas) ----
+const lm = $('#lmodal');
+async function openLocal(id){
+  lm.classList.add('open'); cropper.stop();
+  $('#lImg').src = ''; $('#lTitle').textContent = 'Cargando…'; $('#lInfo').textContent = ''; $('#lCrops').innerHTML = ''; $('#lTags').innerHTML = '';
+  let it;
+  try { it = await api('api/local.php?id=' + id); } catch (e) { $('#lTitle').textContent = e.message; return; }
+  state.local = it;
+  $('#lImg').src = it.url; $('#lTitle').textContent = it.primary; $('#lOpen').href = it.url;
+  $('#lInfo').innerHTML = `${it.tags.includes('Ecchi')?'<i class="badge" title="Ecchi">E</i>':''}<b>${it.width}×${it.height}</b> · ${fmtBytes(it.size)} · <a href="https://www.zerochan.net/${it.id}" target="_blank" rel="noopener">#${it.id}</a>${it.downloaded_at?` · ${it.downloaded_at.slice(0,10)}`:''}`;
+  $('#lTags').innerHTML = it.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('');
+  renderCrops(it.crops);
+}
+function closeLocal(){ if (!lm.classList.contains('open')) return; lm.classList.remove('open'); cropper.stop(); state.local = null; }
+function renderCrops(crops){
+  state.local.crops = crops;
+  document.querySelectorAll(`.card[data-id="${state.local.id}"] .meta span`).forEach(s => {
+    s.querySelector('.badge.crop')?.remove();
+    if (crops.length) s.insertAdjacentHTML('afterbegin', `<i class="badge crop" title="${crops.length} recorte${crops.length>1?'s':''}">✂${crops.length}</i>`);
+  });
+  $('#lCrops').innerHTML = crops.length ? `<div class="kv">${crops.length} recorte${crops.length>1?'s':''}</div>` + crops.map(c => `
+    <div class="row" data-name="${esc(c.name)}"><img src="${c.url}?t=${c.mtime}" alt="" data-open="${c.url}"><span><b>${c.width}×${c.height}</b><br>${fmtBytes(c.size)}</span>
+      <span class="sp"><a href="${c.url}" target="_blank" rel="noopener"><button type="button" class="small">Abrir</button></a><button type="button" class="small" data-delcrop="${esc(c.name)}">🗑</button></span></div>`).join('') : '';
+}
+$('#lclose').onclick = closeLocal;
+lm.addEventListener('click', e => { if (e.target === lm) closeLocal(); });
+$('#lTags').addEventListener('click', e => {
+  if (!e.target.classList.contains('tag')) return;
+  state.savedFilter.tag = e.target.textContent; state.savedFilter.p = 1; closeLocal(); loadSaved();
+});
+$('#lDel').onclick = async () => {
+  const id = state.local?.id; if (!id) return;
+  if (!confirm(`¿Borrar #${id} del disco, con sus recortes? No se puede deshacer.`)) return;
+  try { await deleteLocal([id]); closeLocal(); loadSaved(); } catch (e) { toast('Error: ' + e.message); }
+};
+$('#lCrops').addEventListener('click', async e => {
+  const img = e.target.closest('[data-open]'); if (img) { window.open(img.dataset.open, '_blank'); return; }
+  const b = e.target.closest('[data-delcrop]'); if (!b) return;
+  if (!confirm(`¿Borrar el recorte ${b.dataset.delcrop}?`)) return;
+  try { const d = await api('api/local.php', { action: 'delete_crop', id: state.local.id, name: b.dataset.delcrop }); renderCrops(d.crops); toast('Recorte borrado'); }
+  catch (err) { toast('Error: ' + err.message); }
+});
+
+// ---- recorte: rectángulo normalizado (0..1) sobre la imagen mostrada; el servidor recorta el original ----
+const cropper = (() => {
+  const box = $('#cropbox'), img = $('#lImg'), tools = $('#cropTools');
+  let r = { x: 0, y: 0, w: 1, h: 1 }, ratio = null, drag = null;   // ratio = ancho/alto en px, null = libre
+  const W = () => img.naturalWidth || 1, H = () => img.naturalHeight || 1;
+  const minW = () => 16 / W(), minH = () => 16 / H();
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+  // Con ratio fijo, en unidades normalizadas h = w · (W/H) / ratio
+  const hFromW = w => w * W() / H() / ratio, wFromH = h => h * H() / W() * ratio;
+  function apply(){
+    Object.assign(box.style, { left: r.x*100+'%', top: r.y*100+'%', width: r.w*100+'%', height: r.h*100+'%' });
+    $('#cropInfo').textContent = `${Math.round(r.w*W())}×${Math.round(r.h*H())}`;
+  }
+  function reset(){
+    if (ratio) { if (W()/H() > ratio) { r.h = 1; r.w = wFromH(1); } else { r.w = 1; r.h = hFromW(1); } }
+    else { r.w = r.h = 1; }
+    r.x = (1 - r.w) / 2; r.y = (1 - r.h) / 2; apply();
+  }
+  function readRatio(){
+    const v = $('#ar').value; $('#arCustom').hidden = v !== 'custom';
+    if (v === 'free') ratio = null;
+    else { const [a, b] = v === 'custom' ? [+$('#arW').value, +$('#arH').value] : v.split(':').map(Number); ratio = a > 0 && b > 0 ? a / b : null; }
+    reset();
+  }
+  function start(){
+    if (!state.local) return;
+    if (!img.naturalWidth) { toast('Esperando a que cargue la imagen…'); img.addEventListener('load', start, { once: true }); return; }
+    tools.classList.add('open'); box.hidden = false; lm.classList.add('cropping'); readRatio();
+  }
+  function stop(){ tools.classList.remove('open'); box.hidden = true; lm.classList.remove('cropping'); drag = null; }
+  // Coordenadas del puntero normalizadas a la imagen
+  const pt = e => { const b = img.getBoundingClientRect(); return { x: (e.clientX - b.left) / b.width, y: (e.clientY - b.top) / b.height }; };
+  box.addEventListener('pointerdown', e => {
+    e.preventDefault(); box.setPointerCapture(e.pointerId);
+    const p = pt(e), h = e.target.dataset.h;
+    drag = h ? { h, ax: h.includes('w') ? r.x + r.w : r.x, ay: h.includes('n') ? r.y + r.h : r.y }   // esquina ancla = opuesta a la que se arrastra
+             : { h: null, dx: p.x - r.x, dy: p.y - r.y };
+  });
+  box.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const p = pt(e);
+    if (!drag.h) { r.x = clamp(p.x - drag.dx, 0, 1 - r.w); r.y = clamp(p.y - drag.dy, 0, 1 - r.h); apply(); return; }
+    // Redimensionar: la esquina arrastrada sigue al puntero, la opuesta (ax, ay) queda fija
+    const px = clamp(p.x, 0, 1), py = clamp(p.y, 0, 1);
+    const left = drag.h.includes('w'), top = drag.h.includes('n');
+    let w = Math.max(minW(), left ? drag.ax - px : px - drag.ax), h = Math.max(minH(), top ? drag.ay - py : py - drag.ay);
+    if (ratio) {
+      h = hFromW(w);
+      const maxH = top ? drag.ay : 1 - drag.ay;             // hasta el borde de la imagen en vertical
+      if (h > maxH) { h = maxH; w = wFromH(h); }
+      if (h < minH()) { h = minH(); w = wFromH(h); }
+    }
+    w = Math.min(w, left ? drag.ax : 1 - drag.ax); if (ratio) h = hFromW(w);
+    r.w = w; r.h = h; r.x = left ? drag.ax - w : drag.ax; r.y = top ? drag.ay - h : drag.ay; apply();
+  });
+  const end = () => { drag = null; };
+  box.addEventListener('pointerup', end); box.addEventListener('pointercancel', end);
+  $('#ar').onchange = readRatio; $('#arW').oninput = $('#arH').oninput = () => { if ($('#ar').value === 'custom') readRatio(); };
+  $('#lCrop').onclick = () => tools.classList.contains('open') ? stop() : start();
+  $('#cropCancel').onclick = stop;
+  $('#cropSave').onclick = async () => {
+    if (!state.local) return;
+    const b = $('#cropSave'); b.disabled = true; b.textContent = 'Recortando…';
+    try {
+      const d = await api('api/local.php', { action: 'crop', id: state.local.id, x: r.x.toFixed(6), y: r.y.toFixed(6), w: r.w.toFixed(6), h: r.h.toFixed(6) });
+      renderCrops(d.crops); toast(`Recorte guardado: ${d.crop.width}×${d.crop.height}`); stop();
+    } catch (e) { toast('Error: ' + e.message); }
+    finally { b.disabled = false; b.textContent = 'Guardar recorte'; }
+  };
+  return { start, stop };
+})();
+
 // ---- grid clicks ----
 grid.addEventListener('click', e => {
   const dl = e.target.closest('[data-dl]');
   if (dl) { e.stopPropagation(); downloadOne(+dl.dataset.dl); return; }
+  const del = e.target.closest('[data-del]');
+  if (del) {
+    e.stopPropagation();
+    const id = +del.dataset.del;
+    if (!confirm(`¿Borrar #${id} del disco, con sus recortes? No se puede deshacer.`)) return;
+    deleteLocal([id]).then(() => loadSaved()).catch(err => toast('Error: ' + err.message));
+    return;
+  }
   const card = e.target.closest('.card'); if (!card) return;
-  if (card.dataset.local) window.open(card.dataset.local, '_blank'); else openModal(+card.dataset.id);
+  if (state.selectMode && card.dataset.local) { toggleSel(card, e.target.classList.contains('sel') ? e.target.checked : undefined); return; }
+  if (card.dataset.local) openLocal(+card.dataset.id); else openModal(+card.dataset.id);
 });
 
 // ---- jobs (segundo plano) ----
