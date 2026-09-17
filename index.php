@@ -56,7 +56,9 @@ main{padding:16px}
 .badge.crop{background:var(--accent)}
 #selbar{display:none;gap:6px;align-items:center}
 #selbar.open{display:flex}
-.pager{display:flex;gap:8px;justify-content:center;margin:16px 0}
+.pager{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;margin:16px 0}
+.pager input{width:64px;text-align:center}
+.pager .kv{white-space:nowrap}
 .tabs{display:flex;gap:4px;margin-left:auto}
 .tabs button.active{border-color:var(--accent);color:var(--accent)}
 .tags{display:flex;flex-wrap:wrap;gap:4px}
@@ -213,7 +215,7 @@ main{padding:16px}
 <script>
 const $ = s => document.querySelector(s);
 const form = $('#form'), grid = $('#grid'), statusEl = $('#status'), pager = $('#pager');
-let state = { tab: 'search', page: 1, items: [], saved: new Set(), savedFilter: { tag: '', q: '', sort: 'date', p: 1 }, jobs: [], jobsTimer: null, selectMode: false, sel: new Set(), local: null };
+let state = { tab: 'search', page: 1, items: [], saved: new Set(), savedFilter: { tag: '', q: '', sort: 'date', p: 1 }, jobs: [], jobsTimer: null, selectMode: false, sel: new Set(), local: null, fromHistory: false };
 
 const fmtBytes = b => b > 1048576 ? (b/1048576).toFixed(1)+' MB' : b > 1024 ? (b/1024).toFixed(0)+' KB' : b+' B';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -230,17 +232,74 @@ function formParams(){
   for (const [k,v] of fd) if (v !== '') p.set(k, v);
   return p;
 }
-function saveState(){ try{ localStorage.setItem('zc.form', JSON.stringify(Object.fromEntries(formParams()))); }catch{} }
+/** Rellena el formulario de Explorar desde un objeto {tags, s, t, d, c, ecchi, min, l, strict}. */
+function fillForm(s){
+  for (const el of form.elements) { if (!el.name) continue; if (el.type==='checkbox') el.checked = !!s[el.name]; else el.value = s[el.name] ?? (el.tagName==='SELECT' ? el.value : ''); }
+  if (!s.l) form.elements.l.value = '40';
+}
+// localStorage es el respaldo cuando se abre la URL base: guarda filtros, página y pestaña
+function saveState(){ try{ localStorage.setItem('zc.form', JSON.stringify({ ...Object.fromEntries(formParams()), p: state.page, tab: state.tab, saved: state.savedFilter })); }catch{} }
 function restoreState(){
   try{ const s = JSON.parse(localStorage.getItem('zc.form')||'{}');
-    for (const el of form.elements) { if (!el.name) continue; if (el.type==='checkbox') el.checked = !!s[el.name]; else el.value = s[el.name] ?? (el.tagName==='SELECT' ? el.value : ''); }
-    if (!s.l) form.elements.l.value = '40';
-  }catch{}
+    fillForm(s); state.page = Math.max(1, +s.p || 1);
+    if (s.saved) { Object.assign(state.savedFilter, s.saved); syncSavedBar(); }
+    return ['search','saved','log'].includes(s.tab) ? s.tab : 'search';
+  }catch{ return 'search'; }
+}
+function syncSavedBar(){ $('#sq').value = state.savedFilter.q; $('#ssort').value = state.savedFilter.sort; }
+
+// ---- estado ⇄ URL (?tags=..&p=N | ?tab=saved&tag=..&p=N | ?tab=log) ----
+const SAVED_KEYS = ['tag','q','sort'], SAVED_SORTS = ['date','size','id'];
+function urlFromState(){
+  const p = new URLSearchParams();
+  if (state.tab === 'saved') {
+    p.set('tab', 'saved'); const f = state.savedFilter;
+    SAVED_KEYS.forEach(k => { if (f[k] && !(k === 'sort' && f[k] === 'date')) p.set(k, f[k]); });
+    if (f.p > 1) p.set('p', f.p);
+  } else if (state.tab === 'log') {
+    p.set('tab', 'log');
+  } else {
+    for (const [k, v] of formParams()) p.set(k, v);
+    if (state.page > 1) p.set('p', state.page);
+  }
+  const q = p.toString(); return q ? '?' + q : location.pathname;
+}
+/** Empuja la URL actual al historial (o la reemplaza si venimos de popstate / carga inicial). */
+function syncUrl(){
+  const url = urlFromState(), cur = location.search || location.pathname;
+  if (url !== cur) history[state.fromHistory ? 'replaceState' : 'pushState'](null, '', url);
+  state.fromHistory = false;
+}
+/** Lee la URL; devuelve la pestaña si trae estado, null si está vacía. */
+function applyUrl(){
+  const q = new URLSearchParams(location.search);
+  if (![...q.keys()].length) return null;
+  const tab = q.get('tab');
+  if (tab === 'log') return 'log';
+  if (tab === 'saved') {
+    Object.assign(state.savedFilter, { tag: q.get('tag') || '', q: q.get('q') || '', sort: SAVED_SORTS.includes(q.get('sort')) ? q.get('sort') : 'date', p: Math.max(1, +q.get('p') || 1) });
+    syncSavedBar(); return 'saved';
+  }
+  fillForm(Object.fromEntries(q)); state.page = Math.max(1, +q.get('p') || 1);
+  return 'search';
+}
+window.addEventListener('popstate', () => { state.fromHistory = true; const t = applyUrl(); if (!t) state.page = 1; switchTab(t ?? 'search'); });
+
+// ---- paginador común: « Primera  ← Anterior  [N] / total  Ir  Siguiente →  Última » ----
+function renderPager({ page, pages = null, hasNext, go }){
+  const last = pages ?? Infinity;
+  pager.innerHTML = `<button ${page<=1?'disabled':''} data-go="1" title="Primera">«</button><button ${page<=1?'disabled':''} data-go="${page-1}">← Anterior</button>
+    <input type="number" min="1" ${pages?`max="${pages}"`:''} value="${page}" title="Ir a página"><span class="kv">${pages?`/ ${pages}`:''}</span><button data-go="input">Ir</button>
+    <button ${(hasNext ?? page < last)?'':'disabled'} data-go="${page+1}">Siguiente →</button>${pages?`<button ${page>=pages?'disabled':''} data-go="${pages}" title="Última">»</button>`:''}`;
+  const input = pager.querySelector('input');
+  const jump = n => { n = Math.max(1, Math.min(last, Math.floor(+n) || 1)); if (n !== page) go(n); else input.value = page; };
+  pager.querySelectorAll('[data-go]').forEach(b => b.onclick = () => jump(b.dataset.go === 'input' ? input.value : b.dataset.go));
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); jump(input.value); } });
 }
 
 // ---- explorar ----
 async function search(page = 1){
-  state.page = page; saveState();
+  state.page = Math.max(1, page); saveState(); syncUrl();
   const p = formParams(); p.set('p', page);
   statusEl.textContent = 'Buscando…'; grid.innerHTML = ''; pager.innerHTML = '';
   try { renderSearch(await api('api/search.php?' + p)); }
@@ -266,14 +325,13 @@ function renderSearch(d){
   }).join('');
   // Paginar según lo que devolvió la API, no lo que quedó tras los filtros locales
   const hasNext = (d.raw_count ?? d.items.length) >= d.limit;
-  pager.innerHTML = `<button ${d.page<=1?'disabled':''} id="prev">← Anterior</button><span style="align-self:center;color:var(--muted)">${d.page}</span><button ${hasNext?'':'disabled'} id="next">Siguiente →</button>`;
-  $('#prev')?.addEventListener('click', ()=>search(d.page-1));
-  $('#next')?.addEventListener('click', ()=>search(d.page+1));
+  renderPager({ page: d.page, hasNext, go: search });
 }
 
 // ---- descargados (índice local) ----
 async function loadSaved(){
-  const f = state.savedFilter, p = new URLSearchParams({ tag: f.tag, q: f.q, sort: f.sort, p: f.p, l: 60 });
+  const f = state.savedFilter; f.p = Math.max(1, f.p); saveState(); syncUrl();
+  const p = new URLSearchParams({ tag: f.tag, q: f.q, sort: f.sort, p: f.p, l: 60 });
   statusEl.textContent = 'Cargando…'; grid.innerHTML = ''; pager.innerHTML = '';
   try { renderSaved(await api('api/downloads.php?' + p)); }
   catch (e) { statusEl.innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; }
@@ -293,9 +351,7 @@ function renderSaved(d){
       <div class="meta"><b title="${esc(it.primary)}">${esc(it.primary)}</b><span>${(it.tags||[]).includes('Ecchi')?'<i class="badge" title="Ecchi">E</i>':''}${it.crops?`<i class="badge crop" title="${it.crops} recorte${it.crops>1?'s':''}">✂${it.crops}</i>`:''}${fmtBytes(it.size)}</span></div>
     </div>`).join('');
   const pages = Math.ceil(d.count / d.limit);
-  pager.innerHTML = pages > 1 ? `<button ${d.page<=1?'disabled':''} id="sprev">← Anterior</button><span style="align-self:center;color:var(--muted)">${d.page} / ${pages}</span><button ${d.page>=pages?'disabled':''} id="snext">Siguiente →</button>` : '';
-  $('#sprev')?.addEventListener('click', ()=>{ f.p--; loadSaved(); });
-  $('#snext')?.addEventListener('click', ()=>{ f.p++; loadSaved(); });
+  if (pages > 1) renderPager({ page: d.page, pages, go: n => { f.p = n; loadSaved(); } });
 }
 $('#sgo').onclick = () => { state.savedFilter.q = $('#sq').value.trim(); state.savedFilter.sort = $('#ssort').value; state.savedFilter.p = 1; loadSaved(); };
 $('#sq').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#sgo').click(); } });
@@ -367,7 +423,7 @@ $('#mTags').addEventListener('click', e => {
   if (!e.target.classList.contains('tag')) return;
   const t = e.target.textContent, cur = $('#tags').value.split(',').map(s=>s.trim()).filter(Boolean);
   if (e.shiftKey && !cur.includes(t)) cur.push(t); else cur.splice(0, cur.length, t);
-  $('#tags').value = cur.join(', '); $('#modal').classList.remove('open'); switchTab('search'); search(1);
+  $('#tags').value = cur.join(', '); $('#modal').classList.remove('open'); state.page = 1; switchTab('search');
 });
 $('#mDl').onclick = async () => { await downloadOne(+$('#modal').dataset.id, $('#mDlStatus')); $('#mDl').disabled = true; };
 
@@ -576,13 +632,14 @@ function switchTab(tab){
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab===tab));
   $('#savedbar').classList.toggle('open', tab === 'saved');
   $('#loglines').hidden = tab !== 'log';
-  if (tab === 'saved') loadSaved(); else if (tab === 'log') loadLog(); else search(state.page);
+  if (tab === 'saved') loadSaved(); else if (tab === 'log') { saveState(); syncUrl(); loadLog(); } else search(state.page);
 }
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
-form.addEventListener('submit', e => { e.preventDefault(); switchTab('search'); search(1); });
+form.addEventListener('submit', e => { e.preventDefault(); state.page = 1; switchTab('search'); });
 
-restoreState();
-search(1);
+const storedTab = restoreState();
+state.fromHistory = true;
+switchTab(applyUrl() ?? storedTab);
 pollJobs(true);
 </script>
 </body>
