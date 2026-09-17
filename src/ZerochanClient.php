@@ -99,6 +99,44 @@ class ZerochanClient
         return $data;
     }
 
+    /**
+     * Sugerencias de tags para un prefijo. Endpoint no documentado (/suggest?q=, lo usa el buscador de zerochan.net):
+     * texto plano, una línea `Tag|Tipo|Padre` por sugerencia, `-` cuando no hay padre. Caché propia de ZC_SUGGEST_TTL.
+     * Devuelve [['tag','type','parent'], ...].
+     */
+    public function suggest(string $q): array
+    {
+        $cacheFile = ZC_CACHE_DIR . '/suggest-' . md5(mb_strtolower($q)) . '.json';
+        if (is_file($cacheFile) && filemtime($cacheFile) > time() - ZC_SUGGEST_TTL) {
+            $cached = json_decode((string) file_get_contents($cacheFile), true);
+            if (is_array($cached)) {
+                $this->lastFromCache = true;
+                return $cached;
+            }
+        }
+        $this->lastFromCache = false;
+
+        $url = ZC_BASE_URL . '/suggest?q=' . rawurlencode($q);
+        [$body, $status] = $this->withRetries($url, fn() => $this->curlJson($url));
+        if ($status !== 200) {
+            throw new RuntimeException("Zerochan respondió HTTP $status", $status >= 300 && $status < 400 ? 404 : $status);
+        }
+        $items = [];
+        foreach (explode("\n", (string) $body) as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '<')) {   // una página HTML aquí significaría error/redirección
+                continue;
+            }
+            [$tag, $type, $parent] = array_pad(explode('|', $line, 3), 3, '');
+            $items[] = ['tag' => trim($tag), 'type' => trim($type), 'parent' => trim($parent) === '-' || trim($parent) === '' ? null : trim($parent)];
+            if (count($items) >= 15) {
+                break;
+            }
+        }
+        file_put_contents($cacheFile, json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+        return $items;
+    }
+
     /** GET JSON con caché en disco. Lanza RuntimeException(code = HTTP status) si falla. */
     public function get(string $url): array
     {

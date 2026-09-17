@@ -4,12 +4,15 @@ Galería web y descargador por lotes sobre la [API pública de Zerochan](https:/
 Busca ilustraciones por tag, filtra por orientación, color, popularidad, resolución y contenido sugerente,
 míralas en grande y descárgalas en tamaño completo — una a una o cientos en segundo plano — con sus metadatos.
 
-PHP 8 sin framework ni dependencias externas, frontend vanilla, índice local en SQLite.
+PHP 8 sin framework ni dependencias externas, frontend vanilla (`index.php` + `assets/app.css` + `assets/app.js`),
+índice local en SQLite.
 
 ## Características
 
 - **Explorador**: tags combinables (`Bleach, Ichigo Kurosaki`), orden por recientes o populares (siempre / semana / día),
   filtro por dimensiones (`large`, `huge`, horizontal, vertical, cuadrada), color dominante, modo `strict`.
+- **Autocompletado de tags**: al escribir, desplegable con sugerencias de Zerochan (nombre y tipo: Character, Series,
+  VTuber…); solo completa el último tag tras la coma. ↑/↓ para moverse, Enter o Tab para elegir, Esc para cerrar.
 - **Filtros locales** que la API no ofrece: contenido sugerente (`Todo / Sin Ecchi / Solo Ecchi`) y resolución mínima
   (lado corto en px).
 - **Modal** con la imagen en grande, tags clicables (Shift+clic para acumular), fuente original, número de variantes y
@@ -21,6 +24,11 @@ PHP 8 sin framework ni dependencias externas, frontend vanilla, índice local en
 - **Editor de recorte**: recorta cualquier imagen descargada con relación de aspecto fija (16:9, 4:3, 1:1, 9:16…),
   personalizada (W:H) o libre. El original no se toca; los recortes se guardan aparte y se listan como variantes.
 - **Borrado** desde la tarjeta, desde el visor o en lote (modo selección), siempre con confirmación.
+- **Paginación con estado en la URL**: la pestaña, los filtros y la página van en la URL (`?tags=Hololive&p=7`,
+  `?tab=saved&p=3`), así que recargar, marcar o compartir el enlace vuelve al mismo sitio; Atrás/Adelante del navegador
+  navegan entre páginas. Paginador con «Primera», campo «ir a página» y, en Descargados, «Última» y total.
+- **Descargar solo esta página**: «Descargar todo…» ofrece encolar exactamente las imágenes visibles con los filtros
+  activos (omitiendo las ya descargadas y las duplicadas) o N imágenes a partir de la página actual.
 - **Respeta el rate limit** de Zerochan (60 req/min) con un limitador compartido entre web, CLI y worker; caché de
   respuestas JSON; reintentos con backoff; corte de descargas por velocidad mínima (el CDN a veces sirve a ~50 KB/s).
 - **CLI** para scripts y cron; **log** propio consultable desde la interfaz.
@@ -28,6 +36,9 @@ PHP 8 sin framework ni dependencias externas, frontend vanilla, índice local en
 ## Requisitos
 
 - Apache + PHP ≥ 8.1 con `curl`, `pdo_sqlite`, `posix` (todos vienen en la imagen oficial `php:*-apache`).
+- Para el editor de recorte, `imagick` (recomendado: recorta fulls de 20-30 MB con límites de memoria y auto-orienta)
+  o, como alternativa, `gd` (solo imágenes que quepan en `memory_limit`; sin auto-orientación). Sin ninguna de las dos,
+  el resto de la app funciona igual.
 - `AllowOverride All` (el proyecto usa `.htaccess` para proteger `.env`, `data/`, `logs/`…).
 - Una cuenta de Zerochan: la API exige un `User-Agent` con el nombre del proyecto y tu usuario.
 
@@ -58,14 +69,34 @@ Los directorios `cache/`, `downloads/`, `data/` y `logs/` deben ser escribibles 
 
 Abre `http://<host>/zerochan-gallery-downloader/`.
 
+> **Si clonas en una carpeta con otro nombre**, edita la última línea de `.htaccess`: el `RedirectMatch 403` está
+> anclado a `/zerochan-gallery-downloader/` y, si no coincide, `cache/`, `src/`, `cli/`, `data/` y `logs/` quedan
+> accesibles por HTTP. Comprueba con `curl -sI http://<host>/<carpeta>/data/index.sqlite` que responde 403.
+
+## Estructura del proyecto
+
+```
+index.php            markup de la interfaz (una sola página)
+assets/app.css       estilos
+assets/app.js        lógica del frontend (búsqueda, paginación con URL, visor, recorte, jobs, autocompletado)
+config.php           lee .env, constantes ZC_* (rate limit, TTL de caché, límites), autoloader de src/
+api/                 endpoints JSON (ver «API interna»); _bootstrap.php es común a todos
+src/                 ZerochanClient, RateLimiter, Downloader, Index (SQLite), Library (borrar/recortar), Jobs, Log
+cli/                 worker.php (procesa la cola), download.php (encolar / --sync / --status), reindex.php
+cache/               respuestas JSON y sugerencias cacheadas, ratelimit.json
+data/                index.sqlite, jobs/<id>.json, worker.lock
+downloads/           imágenes + metadatos (ver «Estructura de las descargas»); se sirve por HTTP
+logs/                zerochan.log (rotación a .1 a los 5 MB), worker.log
+```
+
 ## Uso
 
 ### Interfaz web
 
 | Pestaña | Qué hace |
 |---|---|
-| **Explorar** | Busca en Zerochan. `⬇` en cada tarjeta descarga el `full`; `✓` ya está en local; `≈` es la misma imagen que otra ya descargada. "Descargar todo…" encola un lote desde la página actual con los filtros activos. |
-| **Descargados** | Tu biblioteca local. Buscador, facetas de tags, orden. Clic abre el visor (recortar, borrar, ver recortes); `🗑` en la tarjeta borra; **Seleccionar** activa el borrado en lote. |
+| **Explorar** | Busca en Zerochan. `⬇` en cada tarjeta descarga el `full`; `✓` ya está en local; `≈` es la misma imagen que otra ya descargada. "Descargar todo…" abre dos opciones: *Esta página* (solo las imágenes visibles, con los filtros activos) o *N imágenes a partir de la página actual*. La URL guarda tags, filtros y página; el paginador admite saltar a una página concreta. |
+| **Descargados** | Tu biblioteca local. Buscador, facetas de tags, orden. Clic abre el visor (recortar, borrar, ver recortes); `🗑` en la tarjeta borra; **Seleccionar** activa el borrado en lote. Paginador con total, «Última» y salto a página; el estado va en la URL (`?tab=saved&tag=…&p=…`). |
 | **Log** | Últimas líneas de `logs/zerochan.log` (reintentos, fallos, jobs). |
 | Botón **Descargas** | Panel con los jobs en curso y terminados. |
 
@@ -115,9 +146,10 @@ Todos los endpoints devuelven JSON y viven en `api/`:
 |---|---|---|
 | `search.php?tags=&p=&l=&s=&t=&d=&c=&strict=&ecchi=&min=` | GET | Listado de Zerochan con filtros; cada item lleva `saved` y `dup_of`. `raw_count` = items antes de filtros locales. |
 | `item.php?id=` | GET | Detalle de una imagen (`small/medium/large/full`, tags, `children`). |
+| `suggest.php?q=` | GET | Sugerencias de tags para un prefijo (`{ tag, type, parent }`), cacheadas 1 h. |
 | `download.php` | POST `id` | Descarga síncrona de una imagen. |
 | `jobs.php` | GET / GET `?id=` | Lista de jobs / detalle. |
-| `jobs.php` | POST `action=create&tags=&max=…` | Encola un lote y lanza el worker. También `cancel`, `retry`, `clear`. |
+| `jobs.php` | POST `action=create&tags=&max=…` | Encola un lote y lanza el worker. Con `ids=1,2,3` (máx. 500) la cola es explícita y el worker no pagina («solo esta página»). También `cancel`, `retry`, `clear`. |
 | `downloads.php?tag=&q=&sort=&p=&l=` | GET | Biblioteca local desde el índice, con facetas y totales; cada item lleva `crops` (nº de recortes). |
 | `local.php?id=` | GET | Detalle de una imagen descargada con su lista de `crops`. |
 | `local.php` | POST `action=delete&ids=1,2,3` | Borra imagen, sidecar y recortes (máx. 200 ids). También `delete_crop&id=&name=` y `crop&id=&x=&y=&w=&h=` (rectángulo normalizado 0..1). |
@@ -143,6 +175,11 @@ api/jobs.php ──► data/jobs/<id>.json ──► setsid nohup php cli/worker
 - El listado de Zerochan no incluye la URL `full`, así que cada descarga cuesta una petición de detalle más el binario:
   unas 25–30 imágenes/min dentro del límite de 60 req/min.
 - Zerochan no tiene parámetro de rating. Lo sugerente lleva el tag `Ecchi`; el filtro se aplica localmente sobre `tags`.
+- «Descargar todo… → Esta página» envía los `ids` visibles a `api/jobs.php`; el worker se salta la fase de recopilación
+  y descarga exactamente esos.
+- Los recortes (`api/local.php?action=crop`) los hace el servidor sobre el original con Imagick (o GD) a partir de un
+  rectángulo normalizado 0..1 que dibuja el navegador; se guardan en `downloads/<tag>/crops/` para que el índice y la
+  detección de "ya descargada" no los confundan con originales.
 
 ## Notas sobre la API de Zerochan (no documentadas)
 
@@ -150,6 +187,11 @@ api/jobs.php ──► data/jobs/<id>.json ──► setsid nohup php cli/worker
   responden 302 sin sesión. De ahí la cookie opcional.
 - El detalle incluye `children` (número de variantes). El listado incluye `md5`, igual al `hash` del detalle.
 - `static.zerochan.net` limita la velocidad a veces; las descargas se cortan solo si bajan de 1 KB/s durante 60 s.
+- El JSON no incluye el total de resultados (`next: true` solo aparece con `l=100`), por eso Explorar no muestra el
+  número de páginas. El HTML de un tag suelto sí lleva «Zerochan has N … images», pero ignora filtros y no existe
+  para combinaciones de tags.
+- `/suggest?q=<prefijo>` (lo usa el buscador de zerochan.net) devuelve texto plano con una línea `Tag|Tipo|Padre` por
+  sugerencia (`-` sin padre). Es lo que alimenta el autocompletado.
 
 ## Licencia
 

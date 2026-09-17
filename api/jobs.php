@@ -4,6 +4,7 @@
  *   GET  api/jobs.php            → { jobs: [resumen...], worker_running }
  *   GET  api/jobs.php?id=X       → job completo (con failed, sin queue)
  *   POST action=create&tags=..&max=..&[p,l,s,t,d,c,strict,ecchi,min]  → { job, spawned }
+ *        &ids=1,2,3 (opcional, máx ZC_BATCH_MAX): cola explícita, el worker no recopila ("solo esta página")
  *   POST action=cancel&id=X | action=retry&id=X | action=clear
  */
 require __DIR__ . '/_bootstrap.php';
@@ -33,7 +34,15 @@ switch ($action) {
         $tags = parse_tags((string) ($_POST['tags'] ?? ''));
         $params = search_params($_POST);
         $max = (int) ($_POST['max'] ?? 50);
-        $job = $jobs->create($tags, $params, $max);
+        $ids = [];
+        if (isset($_POST['ids'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', explode(',', (string) $_POST['ids'])), fn($n) => $n > 0)));
+            if (!$ids) json_out(['error' => 'ids inválidos', 'status' => 400], 400);
+            if (count($ids) > ZC_BATCH_MAX) json_out(['error' => 'máximo ' . ZC_BATCH_MAX . ' ids por lote', 'status' => 400], 400);
+            $params['page_only'] = true;   // etiqueta para el panel; search_params() no deja pasar claves ajenas
+            $max = count($ids);
+        }
+        $job = $jobs->create($tags, $params, $max, $ids);
         $spawned = $jobs->spawnWorker();
         json_out(['job' => Jobs::summary($job), 'spawned' => $spawned]);
 

@@ -22,6 +22,7 @@ define('ZC_COOKIE',       trim($env['ZEROCHAN_COOKIE'] ?? getenv('ZEROCHAN_COOKI
 define('ZC_BASE_URL',     'https://www.zerochan.net');
 define('ZC_CACHE_DIR',    __DIR__ . '/cache');
 define('ZC_CACHE_TTL',    600);              // segundos que vive una respuesta JSON en caché
+define('ZC_SUGGEST_TTL',  3600);             // sugerencias de tags (/suggest); pruneCache borra a partir de ZC_CACHE_TTL*6
 define('ZC_DOWNLOAD_DIR', __DIR__ . '/downloads');
 define('ZC_RATE_LIMIT',   55);               // peticiones/min; la API permite 60, dejamos margen
 define('ZC_HTTP_TIMEOUT', 20);               // segundos para llamadas JSON
