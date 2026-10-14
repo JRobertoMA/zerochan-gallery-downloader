@@ -100,7 +100,8 @@ function renderSearch(d) {
   state.items = d.items;
   const hidden = (d.raw_count ?? d.items.length) - d.items.length;
   const filtros = [d.ecchi !== 'all' ? 'Ecchi' : null, d.min > 0 ? `≥${d.min}px` : null].filter(Boolean).join(', ');
-  statusEl.innerHTML = `${d.items.length} resultados${hidden > 0 ? ` (${hidden} ocultos por ${filtros})` : ''} · página ${d.page} · <a href="${d.url}" target="_blank" rel="noopener">API</a>`;
+  statusEl.innerHTML = `${d.items.length} resultados${hidden > 0 ? ` (${hidden} ocultos por ${filtros})` : ''} · página ${d.page} · <a href="${d.url}" target="_blank" rel="noopener">API</a>`
+    + (d.repaired ? ` · <span style="color:var(--warn)" title="Zerochan está devolviendo el listado malformado; la respuesta se reparó en el servidor">⚠ respuesta reparada</span>` : '');
   if (d.items.length) {
     const btn = document.createElement('button'); btn.textContent = 'Descargar todo…'; btn.onclick = askBatch; statusEl.appendChild(btn);
   }

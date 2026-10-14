@@ -193,6 +193,15 @@ api/jobs.php ──► data/jobs/<id>.json ──► setsid nohup php cli/worker
 - `/suggest?q=<prefijo>` (lo usa el buscador de zerochan.net) devuelve texto plano con una línea `Tag|Tipo|Padre` por
   sugerencia (`-` sin padre). Es lo que alimenta el autocompletado.
 
+## Problemas conocidos
+
+- **Zerochan devuelve los listados `?json` malformados** (desde el 2026-10-13): mete el HTML de la galería dentro de la
+  respuesta JSON y el estado HTTP oscila entre 200 y 500. Es un fallo de su servidor, no de la app. La galería lo
+  detecta y extrae el JSON real, así que Explorar y las descargas en lote funcionan con normalidad; cuando una respuesta
+  se repara, la línea de estado lo indica con «⚠ respuesta reparada» y queda un `WARN json_repaired` en el log.
+  El detalle de imagen, las descargas y el autocompletado nunca se vieron afectados.
+  Si prefieres que la app falle en vez de reparar, pon `ZC_TOLERATE_BROKEN_JSON` a `false` en `config.php`.
+
 ## Licencia
 
 Uso personal. Las imágenes pertenecen a sus autores; respeta los términos de Zerochan y las fuentes originales.

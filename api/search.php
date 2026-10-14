@@ -27,8 +27,12 @@ try {
     }
 
     header('X-Cache: ' . ($client->lastFromCache ? 'HIT' : 'MISS'));
+    if ($client->lastRepaired) {
+        header('X-Repaired: 1');   // listado malformado por Zerochan, reparado aquí (ver CLAUDE.md)
+    }
     json_out([
         'items'     => $items,
+        'repaired'  => $client->lastRepaired,
         'raw_count' => count($raw),     // antes de filtros locales; el front lo usa para paginar
         'ecchi'     => $params['ecchi'],
         'min'       => $params['min'],

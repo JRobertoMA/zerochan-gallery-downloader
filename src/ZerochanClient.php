@@ -15,6 +15,9 @@ class ZerochanClient
     /** Indica si la última llamada a get() salió de caché. */
     public bool $lastFromCache = false;
 
+    /** Indica si la última llamada a get() hubo que repararla (ver repairJson). */
+    public bool $lastRepaired = false;
+
     public function __construct(private RateLimiter $limiter)
     {
         if (!is_dir(ZC_CACHE_DIR)) {
@@ -137,6 +140,64 @@ class ZerochanClient
         return $items;
     }
 
+    /** ¿El cuerpo parece JSON (y no una página de error HTML)? Decide si un 5xx merece reintento. */
+    private static function looksLikeJson(string $body): bool
+    {
+        $t = ltrim($body);
+        return $t !== '' && ($t[0] === '{' || $t[0] === '[');
+    }
+
+    /**
+     * Primer objeto JSON equilibrado a partir del `{` en $from, respetando cadenas y escapes
+     * (el cuerpo roto trae HTML con llaves que no deben contarse). null si nunca cierra.
+     */
+    private static function balanced(string $s, int $from): ?string
+    {
+        $depth = 0;
+        $inStr = false;
+        $esc = false;
+        for ($i = $from, $len = strlen($s); $i < $len; $i++) {
+            $c = $s[$i];
+            if ($inStr) {
+                if ($esc)            { $esc = false; }
+                elseif ($c === '\\') { $esc = true; }
+                elseif ($c === '"')  { $inStr = false; }
+                continue;
+            }
+            if ($c === '"') { $inStr = true; }
+            elseif ($c === '{') { $depth++; }
+            elseif ($c === '}' && --$depth === 0) { return substr($s, $from, $i - $from + 1); }
+        }
+        return null;
+    }
+
+    /**
+     * WORKAROUND (2026-10-13): Zerochan sirve los listados ?json con su plantilla rota —
+     * `{\r\n` + el JSON real `{"items":[…]}` + HTML de la galería + `}\r\n` — y con el estado HTTP
+     * oscilando entre 200 y 500. Extrae el JSON real probando los tres primeros `{` del cuerpo.
+     * Devuelve null si no hay nada aprovechable (entonces el error se propaga como siempre).
+     * Ver CLAUDE.md, «Workaround activo», para cómo comprobar si ya se puede retirar.
+     */
+    private static function repairJson(string $body): ?array
+    {
+        for ($i = 0, $tried = 0, $len = strlen($body); $i < $len && $tried < 3; $i++) {
+            if ($body[$i] !== '{') {
+                continue;
+            }
+            $tried++;
+            $json = self::balanced($body, $i);
+            if ($json === null) {
+                continue;
+            }
+            $data = json_decode($json, true);
+            // Un payload de error legítimo no se hace pasar por datos
+            if (is_array($data) && $data !== [] && !isset($data['error'])) {
+                return $data;
+            }
+        }
+        return null;
+    }
+
     /** GET JSON con caché en disco. Lanza RuntimeException(code = HTTP status) si falla. */
     public function get(string $url): array
     {
@@ -146,10 +207,12 @@ class ZerochanClient
             $cached = json_decode((string) file_get_contents($cacheFile), true);
             if (is_array($cached)) {
                 $this->lastFromCache = true;
+                $this->lastRepaired = false;
                 return $cached;
             }
         }
         $this->lastFromCache = false;
+        $this->lastRepaired = false;
 
         // No seguimos redirecciones: Zerochan responde 302 a "/" para tags restringidos o meta tags,
         // y seguirla devolvería el HTML de la portada.
@@ -158,16 +221,30 @@ class ZerochanClient
         if ($status >= 300 && $status < 400) {
             throw new RuntimeException('Zerochan redirige: tag restringido, meta tag (p.ej. Ecchi) o inexistente', 404);
         }
-        if ($status !== 200) {
+        // WORKAROUND (2026-10-13): un 5xx que aun así trae JSON utilizable se aprovecha (ver repairJson)
+        $brokenButUsable = ZC_TOLERATE_BROKEN_JSON && $status >= 500 && self::looksLikeJson((string) $body);
+        if ($status !== 200 && !$brokenButUsable) {
             throw new RuntimeException("Zerochan respondió HTTP $status", $status);
         }
-        $data = json_decode($body, true);
+
+        $data = json_decode((string) $body, true);
+        if (!is_array($data) && ZC_TOLERATE_BROKEN_JSON) {
+            $data = self::repairJson((string) $body);
+            if (is_array($data)) {
+                $this->lastRepaired = true;
+                Log::warn('json_repaired', ['url' => $url, 'status' => $status, 'items' => count($data['items'] ?? [])]);
+            }
+        }
         if (!is_array($data)) {
-            Log::error('invalid_json', ['url' => $url, 'head' => substr($body, 0, 80)]);
+            Log::error('invalid_json', ['url' => $url, 'status' => $status, 'head' => substr((string) $body, 0, 80)]);
             throw new RuntimeException('Zerochan devolvió un JSON inválido', 502);
         }
+        if ($brokenButUsable && !$this->lastRepaired) {
+            Log::warn('json_http_error_ignored', ['url' => $url, 'status' => $status]);
+        }
 
-        file_put_contents($cacheFile, $body, LOCK_EX);
+        // Se cachea el JSON ya saneado, no el cuerpo crudo: si no, el siguiente HIT volvería a fallar
+        file_put_contents($cacheFile, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
         return $data;
     }
 
@@ -257,7 +334,10 @@ class ZerochanClient
         for ($attempt = 1; ; $attempt++) {
             $this->limiter->acquire();
             [$body, $status, $err] = $fn();
-            $retryable = $body === false || $status >= 500;
+            // Un 5xx con cuerpo JSON no se reintenta: Zerochan lo manda roto pero utilizable (ver repairJson),
+            // y reintentar solo gastaría 3 peticiones del rate limit y ~7 s de espera por búsqueda.
+            $retryable = $body === false
+                || ($status >= 500 && !(ZC_TOLERATE_BROKEN_JSON && self::looksLikeJson((string) $body)));
             if (!$retryable) {
                 return [$body, $status];
             }

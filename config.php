@@ -31,6 +31,10 @@ define('ZC_DL_MIN_SPEED', 1024);             // ... abortar si baja de 1 KB/s du
 define('ZC_DL_STALL_SECS', 60);              //     (static.zerochan.net a veces sirve a ~50 KB/s; 29 MB tardan 10 min)
 define('ZC_BATCH_MAX',    500);              // tope duro de imágenes por lote
 define('ZC_RETRIES',      3);                // intentos ante error de red / 5xx (backoff 2s, 5s, 10s)
+// WORKAROUND (2026-10-13): Zerochan devuelve los listados ?json envueltos en basura (ver CLAUDE.md,
+// «Workaround activo»). Con true se extrae el JSON real del cuerpo; false restaura el comportamiento estricto
+// (sirve para comprobar si Zerochan ya lo arregló, y entonces retirar el parche).
+define('ZC_TOLERATE_BROKEN_JSON', true);
 define('ZC_DATA_DIR',     __DIR__ . '/data');          // índice SQLite, jobs, lock del worker
 define('ZC_JOBS_DIR',     ZC_DATA_DIR . '/jobs');
 define('ZC_INDEX_DB',     ZC_DATA_DIR . '/index.sqlite');
